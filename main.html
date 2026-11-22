@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -10,7 +10,7 @@
 <body id="map-page-body">
 <header id="main-header">
     <a href="main.html" class="logo-text">MapKeep</a>
-    <nav>
+    <nav id="main-nav">
         <span id="user-greeting"></span>
         <a href="trips.html">Minhas Viagens</a>
         <a href="main.html" class="active-nav">Mapa</a>
@@ -163,13 +163,14 @@
             </g>
         </svg>
         <h2>Selecione o estado</h2>
+        <div id="map-stats" class="map-stats-panel">Carregando mapa...</div>
     </section>
 </main>
 
 <div id="map-action-modal" class="modal-backdrop hidden">
     <div class="modal-content">
         <header class="modal-header">
-            <h3 id="map-modal-title">Título do Modal</h3>
+            <h3 id="map-modal-title">Viagens no Estado</h3>
             <button class="close-modal-button" data-modal-id="map-action-modal">&times;</button>
         </header>
         <div class="modal-body" id="map-modal-body-content">
@@ -179,7 +180,27 @@
     </div>
 </div>
 
+<div id="trip-detail-modal" class="modal-backdrop hidden">
+    <div class="modal-content">
+        <header class="modal-header">
+            <h3 id="detail-modal-title">Detalhes da Viagem</h3>
+            <button class="close-modal-button" data-modal-id="trip-detail-modal">&times;</button>
+        </header>
+        <div class="modal-body">
+            <img src="https://placehold.co/300x200?text=Viagem" alt="Imagem da Viagem" id="trip-detail-image-modal">
+            <h3 id="detail-modal-trip-title" style="text-align:center; margin-top:10px;"></h3>
+            <p id="trip-detail-date-modal" style="text-align:center; font-size:0.9em; color:#555;"></p>
+            <p id="trip-detail-description-modal"></p>
+            <div id="trip-detail-photos-container" class="photo-gallery-grid"></div>
+        </div>
+        <footer class="modal-footer">
+            <button id="edit-trip-from-detail-button">Editar</button>
+            <button id="delete-trip-button" style="background-color: #ffcccc; border-color:red; color:red;">Excluir</button>
+        </footer>
+    </div>
+</div>
+
 <footer id="main-footer"><p>&copy; 2025 MapKeep</p></footer>
-<script src="js/script.js"></script>
+<script type="module" src="js/script.js"></script>
 </body>
 </html>

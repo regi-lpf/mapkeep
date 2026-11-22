@@ -396,3 +396,76 @@ form button[type="submit"]:hover {
 
 
 
+
+/* Select form inputs */
+#trip-form select,
+#map-modal-form select,
+#dynamic-trip-form select {
+    width: 100%;
+    padding: 10px 12px;
+    border: var(--border-width-standard) solid var(--color-border-strong);
+    border-radius: var(--border-radius-standard);
+    font-family: var(--font-primary);
+    font-size: 1em;
+    background-color: var(--color-bg-main);
+    cursor: pointer;
+}
+
+/* User pill in header */
+.user-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-ui-accent);
+    font-size: 0.95em;
+    margin-right: 10px;
+}
+.user-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid var(--color-border-strong);
+    object-fit: cover;
+}
+
+/* Map stats panel */
+.map-stats-panel {
+    margin-top: 15px;
+    background-color: var(--color-bg-panel);
+    border: var(--border-width-standard) solid var(--color-border-strong);
+    border-radius: var(--border-radius-standard);
+    padding: 10px 20px;
+    font-family: var(--font-ui-accent);
+    font-size: 1.05em;
+    box-shadow: var(--box-shadow-hard-medium);
+    text-align: center;
+}
+.map-stats-panel strong {
+    color: var(--color-accent-primary-darker);
+}
+
+/* Visited state highlight on map */
+.content-panel svg .visited-map-state {
+    fill: #FFE2A8 !important;
+    stroke: var(--color-border-strong) !important;
+    stroke-width: 90 !important;
+}
+
+.content-panel svg .visited-map-state:hover {
+    fill: var(--color-accent-primary) !important;
+    opacity: 0.9;
+}
+
+.login-feedback {
+    margin-top: 15px;
+    font-size: 0.9em;
+    color: var(--color-accent-destructive);
+    min-height: 1.2em;
+}
+
+.loading-indicator {
+    text-align: center;
+    padding: 30px;
+    font-family: var(--font-ui-accent);
+    font-size: 1.1em;
+}

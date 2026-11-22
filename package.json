@@ -1,0 +1,17 @@
+{
+  "name": "mapkeep",
+  "version": "1.0.0",
+  "description": "MapKeep - Registre e visualize viagens pelo Brasil",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^6.4.6"
+  },
+  "dependencies": {
+    "firebase": "^13.4.0"
+  }
+}
