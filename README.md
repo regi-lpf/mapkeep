@@ -1,30 +1,57 @@
-# MapKeep
+# MapKeep 🗺️✈️
 
-## Descrição Geral do Projeto
+O **MapKeep** é uma aplicação web desenvolvida para registrar e reviver experiências de viagem pelos estados do Brasil.
 
-MapKeep é uma aplicação web desenvolvida para permitir que usuários registrem e visualizem suas experiências de viagem pessoais pelo Brasil. O sistema oferece um mapa interativo onde os usuários podem selecionar estados para ver as viagens registradas ou adicionar novas. Além disso, há uma visualização em formato de linha do tempo para todas as viagens cadastradas. Cada registro de viagem pode incluir um título (cidade/local), data, estado, uma descrição com memórias e múltiplas fotos.
-
-O projeto foi concebido como uma forma de aprender e aplicar conceitos de desenvolvimento front-end, com foco na simplicidade da implementação e na experiência do usuário.
-
-## Tecnologias Utilizadas
-
-O MapKeep foi construído utilizando as seguintes tecnologias web fundamentais:
-
-* **HTML5:** Para a estruturação semântica do conteúdo das páginas.
-* **CSS3:** Para a estilização e o design visual da aplicação, com uma abordagem inspirada no neo-brutalismo e nos mockups fornecidos.
-* **JavaScript (Vanilla JS):** Para toda a lógica de interatividade, manipulação do DOM, gerenciamento de dados em sessão e controle da interface do usuário, sem o uso de frameworks ou bibliotecas externas para a lógica principal.
-
-**Planejamento Futuro (Pós-MVP):**
-* Uso de Node.js
-* Persistência de dados utilizando integração com um banco de dados NoSQL como MongoDB.
-* Autenticação de usuários via Google OAuth2.
-
-## Autores
-
-* **Reginaldo Filho**
-    * GitHub: https://github.com/regi-lpf
-  
-* **Ricardo Alves**
-    * Github: https://github.com/RicardoNatiruts 
+A aplicação conta com um mapa interativo onde os estados visitados ganham destaque visual com contador de exploração pelo país, além de uma linha do tempo cronológica com memórias, fotos e datas.
 
 ---
+
+## 🛠️ Stack Tecnológica
+
+- **Front-end:** HTML5 semântico, CSS3 (design neo-brutalista), Vanilla JavaScript (ES Modules).
+- **Tooling & Build:** [Vite](https://vitejs.dev/) para empacotamento, live reload e injeção de variáveis de ambiente.
+- **Backend-as-a-Service (Firebase):**
+  - **Firebase Authentication:** Login seguro com Google OAuth2.
+  - **Cloud Firestore:** Armazenamento em tempo real das viagens por usuário.
+  - **Firebase Storage:** Upload de fotos de viagens.
+- **CI/CD:** GitHub Actions para build e deploy automatizado no GitHub Pages.
+
+---
+
+## 🚀 Como Executar
+
+### Pré-requisitos
+- [Node.js](https://nodejs.org/) (versão 18 ou superior)
+
+### 1. Clonar e Instalar Dependências
+```bash
+git clone https://github.com/regi-lpf/mapkeep.git
+cd mapkeep
+npm install
+```
+
+### 2. Configuração de Variáveis de Ambiente (Opcional)
+Copie o template de exemplo e insira suas credenciais do Firebase:
+```bash
+cp .env.example .env
+```
+
+> **Dica:** Caso não configure o `.env`, o MapKeep inicia automaticamente em **modo de demonstração local** (com persistência no navegador), permitindo navegar e testar todas as funcionalidades da interface sem travar.
+
+### 3. Rodar Localmente
+```bash
+npm run dev
+```
+
+### 4. Compilar para Produção
+```bash
+npm run build
+```
+Os arquivos otimizados serão gerados na pasta `dist/`.
+
+---
+
+## 👥 Autores
+
+* **Reginaldo Filho** — [GitHub](https://github.com/regi-lpf)
+* **Ricardo Alves** — [GitHub](https://github.com/RicardoNatiruts)

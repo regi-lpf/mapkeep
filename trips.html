@@ -10,7 +10,7 @@
 <body id="timeline-page-body">
 <header id="main-header">
     <a href="main.html" class="logo-text">MapKeep</a>
-    <nav>
+    <nav id="main-nav">
         <span id="user-greeting"></span>
         <a href="trips.html" class="active-nav">Minhas Viagens</a>
         <a href="main.html">Mapa</a>
@@ -22,10 +22,10 @@
     <section class="content-panel">
         <h2>Minhas Viagens Registradas</h2>
         <div id="trip-list-container">
-            <p class="no-trips-message">Nenhuma viagem ainda.</p>
+            <p class="no-trips-message">Carregando viagens...</p>
         </div>
     </section>
-    <button id="add-trip-fab" class="fab">+</button>
+    <button id="add-trip-fab" class="fab" title="Adicionar Viagem">+</button>
 </main>
 
 <div id="add-trip-modal" class="modal-backdrop hidden">
@@ -36,12 +36,16 @@
         </header>
         <form id="trip-form" class="modal-body">
             <input type="hidden" id="trip-id-input">
-            <div><label for="trip-title-input">Cidade/Local:</label><input type="text" id="trip-title-input" required></div>
+            <div><label for="trip-title-input">Cidade/Local:</label><input type="text" id="trip-title-input" placeholder="Ex: Praia dos Carneiros" required></div>
             <div><label for="trip-date-input">Data:</label><input type="date" id="trip-date-input" required></div>
-            <div><label for="trip-state-form-input">Estado:</label><input type="text" id="trip-state-form-input" required></div>
-            <div><label for="trip-description-input">Memórias:</label><textarea id="trip-description-input" rows="3" required></textarea></div>
-            <div><label for="trip-photos-input">Fotos:</label><input type="file" id="trip-photos-input" accept="image/*" multiple><div class="photo-preview-container"></div></div>
-            <button type="submit">Salvar</button>
+            <div><label for="trip-state-form-input">Estado:</label><select id="trip-state-form-input" required></select></div>
+            <div><label for="trip-description-input">Memórias:</label><textarea id="trip-description-input" rows="3" placeholder="O que você mais gostou dessa viagem?" required></textarea></div>
+            <div>
+                <label for="trip-photos-input">Fotos:</label>
+                <input type="file" id="trip-photos-input" accept="image/*" multiple>
+                <div class="photo-preview-container"></div>
+            </div>
+            <button type="submit" id="save-trip-btn">Salvar</button>
         </form>
     </div>
 </div>
@@ -67,6 +71,6 @@
 </div>
 
 <footer id="main-footer"><p>&copy; 2025 MapKeep</p></footer>
-<script src="js/script.js"></script>
+<script type="module" src="js/script.js"></script>
 </body>
 </html>

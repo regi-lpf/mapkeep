@@ -1,361 +1,573 @@
-let myTrips = JSON.parse(localStorage.getItem('mapKeepMyTrips')) || [
+import {
+  signInWithGoogle,
+  observeAuthState,
+  updateHeaderUserUI,
+} from './auth.js';
+import {
+  fetchUserTrips,
+  createTrip,
+  updateTrip,
+  deleteTrip,
+} from './trips-service.js';
+import {
+  BRAZIL_STATES,
+  getStateNameByUf,
+  getStateUfByNameOrUf,
+  populateStateSelect,
+  normalizeState,
+} from './states.js';
 
-
-    { id: 't1', title: 'Praia do Francês', date: '2024-07-10', state: 'Alagoas', description: 'Dia de sol e mar!', photos: ['https://placehold.co/70x70?text=Praia1'] },
-
-
-    { id: 't2', title: 'Centro de Palmas', date: '2023-11-05', state: 'Tocantins', description: 'Conhecendo a capital.', photos: ['https://placehold.co/70x70?text=Palmas1', 'https://placehold.co/70x70?text=Palmas2'] },
-
-
-    { id: 't3', title: 'Pelourinho Visita', date: '2024-01-20', state: 'Bahia', description: 'Cultura e história.', photos: [] }
-
-
-];
-
-let nextTripId;
-
-if (myTrips.length > 0 && myTrips.some(trip => typeof trip.id === 'string' && trip.id.startsWith('t'))) {
-    const maxIdNum = myTrips
-        .map(trip => parseInt(trip.id.replace('t', ''), 10))
-        .filter(num => !isNaN(num))
-        .reduce((max, current) => Math.max(max, current), 0);
-    nextTripId = maxIdNum + 1;
-} else {
-    nextTripId = (myTrips.filter(trip => typeof trip.id === 'string' && trip.id.startsWith('t')).length || 0) + 1;
-}
-
-function saveTripsToLocalStorage() {
-    localStorage.setItem('mapKeepMyTrips', JSON.stringify(myTrips));
-}
-
-const LOGGED_IN_KEY = 'mapKeepLoggedIn';
-function isLoggedIn() { return localStorage.getItem(LOGGED_IN_KEY) === 'yes'; }
-function setLoginStatus(isNowLoggedIn) {
-    if (isNowLoggedIn) localStorage.setItem(LOGGED_IN_KEY, 'yes');
-    else localStorage.removeItem(LOGGED_IN_KEY);
-}
-
+let currentUser = null;
+let myTrips = [];
 let currentOpenModalId = null;
+let currentMapSelectedUf = null;
+let pendingPhotoFiles = [];
+
+// ==========================================
+// Modal Helpers
+// ==========================================
 function showModal(modalId) {
-    const modalElement = document.getElementById(modalId);
-    if (modalElement) {
-        modalElement.classList.remove('hidden');
-        currentOpenModalId = modalId;
-        document.body.style.overflow = 'hidden';
-    }
+  const modalElement = document.getElementById(modalId);
+  if (modalElement) {
+    modalElement.classList.remove('hidden');
+    currentOpenModalId = modalId;
+    document.body.style.overflow = 'hidden';
+  }
 }
+
 function hideModal() {
-    if (currentOpenModalId) {
-        const modalElement = document.getElementById(currentOpenModalId);
-        if (modalElement) modalElement.classList.add('hidden');
-        currentOpenModalId = null;
-        document.body.style.overflow = '';
-    }
+  if (currentOpenModalId) {
+    const modalElement = document.getElementById(currentOpenModalId);
+    if (modalElement) modalElement.classList.add('hidden');
+    currentOpenModalId = null;
+    document.body.style.overflow = '';
+  }
 }
 
+// ==========================================
+// Lifecycle & Route Guard
+// ==========================================
 window.addEventListener('DOMContentLoaded', () => {
-    const bodyId = document.body.id;
+  const bodyId = document.body.id;
 
-    document.body.addEventListener('click', function(event) {
-        if (event.target.classList.contains('close-modal-button')) {
-            hideModal();
-        }
-        if (event.target.classList.contains('modal-backdrop')) {
-            if (currentOpenModalId && event.target.id === currentOpenModalId) {
-                hideModal();
-            }
-        }
-    });
-
-    if (bodyId === 'login-page-body') {
-        if (isLoggedIn()) { window.location.href = 'trips.html'; return; }
-        const loginBtn = document.getElementById('login-button');
-        if (loginBtn) {
-            loginBtn.onclick = () => { setLoginStatus(true); window.location.href = 'trips.html'; };
-        }
-    } else {
-        if (!isLoggedIn()) { window.location.href = 'login.html'; return; }
-
-        const logoutBtn = document.getElementById('logout-button');
-        if (logoutBtn) {
-            logoutBtn.onclick = () => { setLoginStatus(false); window.location.href = 'login.html'; };
-        }
-        const userGreetingEl = document.getElementById('user-greeting');
-        if(userGreetingEl) userGreetingEl.textContent = 'Olá!';
-
-        if (bodyId === 'timeline-page-body') initTimelinePage();
-        else if (bodyId === 'map-page-body') initMapPage();
+  // Listeners globais de fechamento de modal
+  document.body.addEventListener('click', (event) => {
+    if (event.target.classList.contains('close-modal-button')) {
+      hideModal();
     }
+    if (event.target.classList.contains('modal-backdrop')) {
+      if (currentOpenModalId && event.target.id === currentOpenModalId) {
+        hideModal();
+      }
+    }
+  });
+
+  if (bodyId === 'login-page-body') {
+    initLoginPage();
+    return;
+  }
+
+  // Páginas protegidas (trips / map)
+  observeAuthState(async (user) => {
+    if (!user) {
+      window.location.replace('login.html');
+      return;
+    }
+    currentUser = user;
+    updateHeaderUserUI(user);
+
+    // Carrega as viagens do usuário
+    myTrips = await fetchUserTrips(user.uid);
+
+    if (bodyId === 'timeline-page-body') {
+      initTimelinePage();
+    } else if (bodyId === 'map-page-body') {
+      initMapPage();
+    }
+  });
 });
 
+// ==========================================
+// Login Page
+// ==========================================
+function initLoginPage() {
+  observeAuthState((user) => {
+    if (user) {
+      window.location.replace('trips.html');
+    }
+  });
+
+  const loginBtn = document.getElementById('login-button');
+  const feedbackEl = document.getElementById('login-feedback');
+
+  if (loginBtn) {
+    loginBtn.onclick = async () => {
+      loginBtn.disabled = true;
+      loginBtn.innerHTML = 'Conectando ao Google...';
+      if (feedbackEl) feedbackEl.textContent = '';
+
+      try {
+        await signInWithGoogle();
+        window.location.replace('trips.html');
+      } catch (err) {
+        console.error(err);
+        loginBtn.disabled = false;
+        loginBtn.innerHTML = `Entrar com Google <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google Logo">`;
+        if (feedbackEl) {
+          feedbackEl.textContent =
+            err.code === 'auth/popup-closed-by-user'
+              ? 'Login cancelado.'
+              : 'Não foi possível autenticar. Verifique sua conexão ou configuração.';
+        }
+      }
+    };
+  }
+}
+
+// ==========================================
+// Timeline Page (trips.html)
+// ==========================================
 function initTimelinePage() {
-    setActiveNavLink('trips.html');
+  setActiveNavLink('trips.html');
+  renderTripListForTimeline();
+
+  const fabTimeline = document.getElementById('add-trip-fab');
+  const addTripModalOnTimeline = document.getElementById('add-trip-modal');
+
+  if (fabTimeline && addTripModalOnTimeline) {
+    fabTimeline.onclick = () => {
+      setupAndShowAddEditModal(addTripModalOnTimeline.id, null, null, async () => {
+        renderTripListForTimeline();
+      });
+    };
+  }
+
+  setupDetailModalActions(() => {
     renderTripListForTimeline();
-
-    const fabTimeline = document.getElementById('add-trip-fab');
-    const addTripModalOnTimeline = document.getElementById('add-trip-modal');
-
-    if (fabTimeline && addTripModalOnTimeline) {
-        fabTimeline.onclick = () => {
-            setupAndShowAddEditModal(addTripModalOnTimeline.id, null, null, renderTripListForTimeline);
-        };
-    }
-
-    const detailModalOnTimeline = document.getElementById('trip-detail-modal');
-    if (detailModalOnTimeline) {
-        const editButton = detailModalOnTimeline.querySelector('#edit-trip-from-detail-button');
-        const deleteButton = detailModalOnTimeline.querySelector('#delete-trip-button');
-
-        if(editButton && addTripModalOnTimeline){
-            editButton.onclick = function() {
-                const tripId = this.dataset.tripId;
-                const tripToEdit = myTrips.find(t => t.id === tripId);
-                if (tripToEdit) {
-                    hideModal();
-                    setupAndShowAddEditModal(addTripModalOnTimeline.id, tripToEdit, null, renderTripListForTimeline);
-                }
-            };
-        }
-        if(deleteButton){
-            deleteButton.onclick = function() {
-                const tripId = this.dataset.tripId;
-                if (confirm('Tem certeza que deseja excluir esta viagem?')) {
-                    myTrips = myTrips.filter(t => t.id !== tripId);
-                    saveTripsToLocalStorage();
-                    hideModal();
-                    renderTripListForTimeline();
-                    window.location.reload();
-                }
-            };
-        }
-    }
+  });
 }
 
 function renderTripListForTimeline() {
-    const container = document.getElementById('trip-list-container');
-    const noTripsMsg = document.querySelector('#timeline-page-body .no-trips-message');
-    if (!container || !noTripsMsg) return;
+  const container = document.getElementById('trip-list-container');
+  if (!container) return;
 
-    const sortedTrips = [...myTrips].sort((a, b) => b.date.localeCompare(a.date));
-    noTripsMsg.classList.toggle('hidden', sortedTrips.length > 0);
-    container.innerHTML = sortedTrips.length > 0 ? sortedTrips.map(createTripCardHTML).join('') : '';
+  if (myTrips.length === 0) {
+    container.innerHTML = `<p class="no-trips-message">Nenhuma viagem registrada ainda. Clique no botão "+" para adicionar sua primeira aventura!</p>`;
+    return;
+  }
 
-    container.querySelectorAll('.trip-card').forEach(card => {
-        card.onclick = () => showTripDetailModalOnTimeline(card.dataset.id);
-    });
+  const sortedTrips = [...myTrips].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  container.innerHTML = sortedTrips.map(createTripCardHTML).join('');
+
+  container.querySelectorAll('.trip-card').forEach((card) => {
+    card.onclick = () => showTripDetailModal(card.dataset.id);
+  });
 }
 
 function createTripCardHTML(trip) {
-    const photos = Array.isArray(trip.photos) ? trip.photos : [];
-    const firstPhoto = photos.length > 0 ? photos[0] : 'https://placehold.co/60x60?text=Pic';
-    return `
-        <div class="trip-card" data-id="${trip.id}">
-            <img src="${firstPhoto}" class="trip-photo-thumbnail" alt="${trip.title}">
-            <div class="trip-card-content">
-                <h3>${trip.title} (${trip.state})</h3>
-                <p class="trip-date">${new Date(trip.date + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
-            </div>
-        </div>`;
+  const photos = Array.isArray(trip.photos) ? trip.photos : [];
+  const firstPhoto = photos.length > 0 ? photos[0] : 'https://placehold.co/120x120?text=Viagem';
+  const displayDate = trip.date
+    ? new Date(trip.date + 'T00:00:00').toLocaleDateString('pt-BR')
+    : 'Data não informada';
+
+  return `
+    <div class="trip-card" data-id="${trip.id}">
+      <img src="${firstPhoto}" class="trip-photo-thumbnail" alt="${trip.title}">
+      <div class="trip-card-content">
+        <h3>${trip.title}</h3>
+        <p class="trip-date">${displayDate} &bull; ${trip.state} (${trip.stateUf || ''})</p>
+      </div>
+    </div>`;
 }
 
-function showTripDetailModalOnTimeline(tripId) {
-    const trip = myTrips.find(t => t.id === tripId);
-    const detailModal = document.getElementById('trip-detail-modal');
-    if (!trip || !detailModal) return;
+function showTripDetailModal(tripId) {
+  const trip = myTrips.find((t) => t.id === tripId);
+  const detailModal = document.getElementById('trip-detail-modal');
+  if (!trip || !detailModal) return;
 
-    detailModal.querySelector('#detail-modal-title').textContent = trip.title;
-    detailModal.querySelector('#trip-detail-image-modal').src = (trip.photos && trip.photos.length > 0) ? trip.photos[0] : 'https://placehold.co/300x200?text=Viagem';
-    detailModal.querySelector('#detail-modal-trip-title').textContent = trip.title;
-    detailModal.querySelector('#trip-detail-date-modal').textContent = `Data: ${new Date(trip.date + 'T00:00:00').toLocaleDateString('pt-BR')}`;
-    detailModal.querySelector('#trip-detail-description-modal').textContent = trip.description;
+  const displayDate = trip.date
+    ? new Date(trip.date + 'T00:00:00').toLocaleDateString('pt-BR')
+    : '';
 
-    const photosContainer = detailModal.querySelector('#trip-detail-photos-container');
+  detailModal.querySelector('#detail-modal-title').textContent = trip.title;
+  detailModal.querySelector('#trip-detail-image-modal').src =
+    trip.photos && trip.photos.length > 0 ? trip.photos[0] : 'https://placehold.co/600x400?text=Viagem';
+  detailModal.querySelector('#detail-modal-trip-title').textContent = `${trip.title} - ${trip.state} (${trip.stateUf || ''})`;
+  detailModal.querySelector('#trip-detail-date-modal').textContent = displayDate ? `Data: ${displayDate}` : '';
+  detailModal.querySelector('#trip-detail-description-modal').textContent = trip.description || '';
+
+  const photosContainer = detailModal.querySelector('#trip-detail-photos-container');
+  if (photosContainer) {
     photosContainer.innerHTML = '';
-    if(Array.isArray(trip.photos)) trip.photos.forEach(pUrl => photosContainer.innerHTML += `<img src="${pUrl}" alt="Foto da viagem">`);
+    if (Array.isArray(trip.photos)) {
+      trip.photos.forEach((pUrl) => {
+        photosContainer.innerHTML += `<img src="${pUrl}" alt="Foto da viagem">`;
+      });
+    }
+  }
 
-    const editButton = detailModal.querySelector('#edit-trip-from-detail-button');
-    const deleteButton = detailModal.querySelector('#delete-trip-button');
-    if(editButton) editButton.dataset.tripId = trip.id;
-    if(deleteButton) deleteButton.dataset.tripId = trip.id;
+  const editButton = detailModal.querySelector('#edit-trip-from-detail-button');
+  const deleteButton = detailModal.querySelector('#delete-trip-button');
+  if (editButton) editButton.dataset.tripId = trip.id;
+  if (deleteButton) deleteButton.dataset.tripId = trip.id;
 
-    showModal('trip-detail-modal');
+  showModal('trip-detail-modal');
 }
 
+function setupDetailModalActions(refreshCallback) {
+  const detailModal = document.getElementById('trip-detail-modal');
+  if (!detailModal) return;
+
+  const editButton = detailModal.querySelector('#edit-trip-from-detail-button');
+  const deleteButton = detailModal.querySelector('#delete-trip-button');
+
+  if (editButton) {
+    editButton.onclick = function () {
+      const tripId = this.dataset.tripId;
+      const tripToEdit = myTrips.find((t) => t.id === tripId);
+      if (tripToEdit) {
+        hideModal();
+        const addModalId = document.getElementById('add-trip-modal')
+          ? 'add-trip-modal'
+          : 'map-action-modal';
+        setupAndShowAddEditModal(addModalId, tripToEdit, null, refreshCallback, addModalId === 'map-action-modal');
+      }
+    };
+  }
+
+  if (deleteButton) {
+    deleteButton.onclick = async function () {
+      const tripId = this.dataset.tripId;
+      if (!tripId) return;
+
+      if (confirm('Tem certeza de que deseja excluir este registro de viagem?')) {
+        deleteButton.disabled = true;
+        deleteButton.textContent = 'Excluindo...';
+        try {
+          await deleteTrip(tripId, currentUser.uid);
+          myTrips = myTrips.filter((t) => t.id !== tripId);
+          hideModal();
+          if (typeof refreshCallback === 'function') refreshCallback();
+        } catch (err) {
+          alert('Erro ao excluir viagem.');
+          console.error(err);
+        } finally {
+          deleteButton.disabled = false;
+          deleteButton.textContent = 'Excluir';
+        }
+      }
+    };
+  }
+}
+
+// ==========================================
+// Map Page (main.html)
+// ==========================================
 function initMapPage() {
-    setActiveNavLink('main.html');
+  setActiveNavLink('main.html');
+  updateMapVisitedHighlights();
 
-    const svgMapElement = document.getElementById('brazil-map-actual-svg');
-    const mapModalTitleEl = document.getElementById('map-modal-title');
-    const mapModalBodyEl = document.getElementById('map-modal-body-content');
-    const mapModalFooterEl = document.getElementById('map-modal-footer-content');
+  const svgMapElement = document.getElementById('brazil-map-actual-svg');
+  let previouslySelectedStatePath = null;
 
-    let previouslySelectedStatePath = null;
-    let currentMapStateNameForAddForm = '';
+  if (svgMapElement) {
+    svgMapElement.querySelectorAll('.map-state').forEach((path) => {
+      path.onclick = function () {
+        const stateUf = (this.id || '').toUpperCase();
+        if (!stateUf) return;
 
-    if (svgMapElement) {
-        svgMapElement.querySelectorAll('.map-state').forEach(path => {
-            path.onclick = function() {
-                const stateId = this.id;
-                currentMapStateNameForAddForm = this.dataset.stateName || stateId.toUpperCase();
-                if (!stateId) return;
+        currentMapSelectedUf = stateUf;
 
-                if (previouslySelectedStatePath) previouslySelectedStatePath.classList.remove('selected-map-state');
-                this.classList.add('selected-map-state');
-                previouslySelectedStatePath = this;
+        if (previouslySelectedStatePath) {
+          previouslySelectedStatePath.classList.remove('selected-map-state');
+        }
+        this.classList.add('selected-map-state');
+        previouslySelectedStatePath = this;
 
-                renderGalleryContentInMapPageModal(currentMapStateNameForAddForm);
-            };
+        renderGalleryContentInMapPageModal(stateUf);
+      };
+    });
+  }
+
+  setupDetailModalActions(() => {
+    updateMapVisitedHighlights();
+    if (currentMapSelectedUf) {
+      renderGalleryContentInMapPageModal(currentMapSelectedUf);
+    }
+  });
+}
+
+function updateMapVisitedHighlights() {
+  const visitedUfs = new Set(
+    myTrips.map((t) => (t.stateUf || getStateUfByNameOrUf(t.state)).toUpperCase())
+  );
+
+  const svgMapElement = document.getElementById('brazil-map-actual-svg');
+  if (svgMapElement) {
+    svgMapElement.querySelectorAll('.map-state').forEach((path) => {
+      const uf = (path.id || '').toUpperCase();
+      if (visitedUfs.has(uf)) {
+        path.classList.add('visited-map-state');
+      } else {
+        path.classList.remove('visited-map-state');
+      }
+    });
+  }
+
+  const statsEl = document.getElementById('map-stats');
+  if (statsEl) {
+    const totalStates = 27;
+    const visitedCount = visitedUfs.size;
+    const percent = Math.round((visitedCount / totalStates) * 100);
+    statsEl.innerHTML = `Você já explorou <strong>${visitedCount} de ${totalStates}</strong> estados (${percent}%)`;
+  }
+}
+
+function renderGalleryContentInMapPageModal(stateUf) {
+  const mapModalTitleEl = document.getElementById('map-modal-title');
+  const mapModalBodyEl = document.getElementById('map-modal-body-content');
+  const mapModalFooterEl = document.getElementById('map-modal-footer-content');
+
+  const stateName = getStateNameByUf(stateUf);
+  if (mapModalTitleEl) mapModalTitleEl.textContent = `Viagens em ${stateName} (${stateUf})`;
+
+  const tripsForState = myTrips.filter((trip) => {
+    const tUf = (trip.stateUf || getStateUfByNameOrUf(trip.state)).toUpperCase();
+    return tUf === stateUf;
+  });
+
+  if (mapModalBodyEl) {
+    mapModalBodyEl.innerHTML =
+      tripsForState.length > 0
+        ? tripsForState.map(createTripCardHTML).join('')
+        : `<p style="padding: 15px 0;">Você ainda não registrou viagens para <strong>${stateName}</strong>.</p>`;
+
+    // Correção do clique no card da página do mapa (abre diretamente o modal de detalhes)
+    mapModalBodyEl.querySelectorAll('.trip-card').forEach((card) => {
+      card.onclick = () => {
+        showTripDetailModal(card.dataset.id);
+      };
+    });
+  }
+
+  if (mapModalFooterEl) {
+    mapModalFooterEl.innerHTML = `
+      <button id="map-modal-add-btn" class="button-link" style="background-color: var(--color-accent-primary); font-weight: bold;">
+        + Adicionar Viagem em ${stateUf}
+      </button>
+    `;
+    const addBtn = document.getElementById('map-modal-add-btn');
+    if (addBtn) {
+      addBtn.onclick = () => {
+        setupAndShowAddEditModal(
+          'map-action-modal',
+          null,
+          stateUf,
+          async () => {
+            updateMapVisitedHighlights();
+            renderGalleryContentInMapPageModal(stateUf);
+          },
+          true
+        );
+      };
+    }
+  }
+
+  showModal('map-action-modal');
+}
+
+// ==========================================
+// Setup Add / Edit Modal
+// ==========================================
+function setupAndShowAddEditModal(
+  modalId,
+  tripToEdit = null,
+  defaultStateUf = null,
+  submitRefreshCallback,
+  isMapPageDynamicModal = false
+) {
+  const modalElement = document.getElementById(modalId);
+  if (!modalElement) return;
+
+  pendingPhotoFiles = [];
+
+  const titleValue = tripToEdit ? tripToEdit.title : '';
+  const dateValue = tripToEdit ? tripToEdit.date : '';
+  const stateSelected = defaultStateUf || (tripToEdit ? tripToEdit.stateUf || tripToEdit.state : '');
+  const descriptionValue = tripToEdit ? tripToEdit.description : '';
+  const tripIdValue = tripToEdit ? tripToEdit.id : '';
+
+  let modalTitleText = tripToEdit ? 'Editar Viagem' : 'Adicionar Nova Viagem';
+  if (isMapPageDynamicModal && defaultStateUf && !tripToEdit) {
+    modalTitleText = `Adicionar Viagem em ${getStateNameByUf(defaultStateUf)} (${defaultStateUf})`;
+  }
+
+  if (isMapPageDynamicModal) {
+    document.getElementById('map-modal-title').textContent = modalTitleText;
+    const formHtmlContent = `
+      <form id="dynamic-trip-form">
+        <input type="hidden" id="trip-id-input" value="${tripIdValue}">
+        <div><label for="trip-title-input">Cidade/Local:</label><input type="text" id="trip-title-input" value="${titleValue}" placeholder="Ex: Gramado" required></div>
+        <div><label for="trip-date-input">Data:</label><input type="date" id="trip-date-input" value="${dateValue}" required></div>
+        <div><label for="trip-state-form-input">Estado:</label><select id="trip-state-form-input" required></select></div>
+        <div><label for="trip-description-input">Memórias:</label><textarea id="trip-description-input" rows="3" placeholder="O que marcou essa viagem?" required>${descriptionValue}</textarea></div>
+        <div>
+          <label for="trip-photos-input">Fotos:</label>
+          <input type="file" id="trip-photos-input" accept="image/*" multiple>
+          <div class="photo-preview-container"></div>
+        </div>
+        <button type="submit" id="save-trip-btn">Salvar Viagem</button>
+      </form>`;
+    document.getElementById('map-modal-body-content').innerHTML = formHtmlContent;
+    document.getElementById('map-modal-footer-content').innerHTML = '';
+
+    const selectEl = document.getElementById('trip-state-form-input');
+    populateStateSelect(selectEl, stateSelected);
+
+    const form = document.getElementById('dynamic-trip-form');
+    bindFormSubmitAndPhotos(form, tripToEdit, submitRefreshCallback);
+  } else {
+    const staticModalTitle = modalElement.querySelector('#add-trip-modal-title');
+    const form = modalElement.querySelector('#trip-form');
+    if (!form || !staticModalTitle) return;
+
+    staticModalTitle.textContent = modalTitleText;
+    form.reset();
+    form.querySelector('#trip-id-input').value = tripIdValue;
+    form.querySelector('#trip-title-input').value = titleValue;
+    form.querySelector('#trip-date-input').value = dateValue;
+    form.querySelector('#trip-description-input').value = descriptionValue;
+
+    const selectEl = form.querySelector('#trip-state-form-input');
+    populateStateSelect(selectEl, stateSelected);
+
+    const photoPreview = form.querySelector('.photo-preview-container');
+    if (photoPreview) {
+      photoPreview.innerHTML = '';
+      if (tripToEdit && Array.isArray(tripToEdit.photos)) {
+        tripToEdit.photos.forEach((pUrl) => {
+          photoPreview.innerHTML += `<img src="${pUrl}" alt="Preview">`;
         });
+      }
     }
 
-    function renderGalleryContentInMapPageModal(stateName) {
-        if(mapModalTitleEl) mapModalTitleEl.textContent = `Viagens em ${stateName}`;
-        const tripsForState = myTrips.filter(trip => trip.state.toLowerCase() === stateName.toLowerCase());
+    bindFormSubmitAndPhotos(form, tripToEdit, submitRefreshCallback);
+  }
 
-        if (mapModalBodyEl) {
-            mapModalBodyEl.innerHTML = tripsForState.length > 0 ?
-                tripsForState.map(createTripCardHTML).join('') :
-                `<p>Nenhuma viagem para ${stateName}.</p>`;
-
-            mapModalBodyEl.querySelectorAll('.trip-card').forEach(card => {
-                card.onclick = () => {
-                    card.onclick = () => showTripDetailModalOnTimeline(card.dataset.id);
-                };
-            });
-        }
-        if (mapModalFooterEl) {
-            mapModalFooterEl.innerHTML = `<button id="map-modal-plus-button" class="fab-like-modal-button">+</button>`;
-            document.getElementById('map-modal-plus-button').onclick = () => {
-                setupAndShowAddEditModal('map-action-modal', null, stateName, () => {
-                    renderGalleryContentInMapPageModal(stateName);
-                }, true);
-            };
-        }
-        showModal('map-action-modal');
-    }
+  showModal(modalId);
 }
 
-function setupAndShowAddEditModal(modalId, tripToEdit = null, defaultState = null, submitRefreshCallback, isMapPageDynamicModal = false) {
-    const modalElement = document.getElementById(modalId);
-    if (!modalElement) return;
+function bindFormSubmitAndPhotos(form, tripToEdit, refreshCallback) {
+  const photoInput = form.querySelector('#trip-photos-input');
+  if (photoInput) {
+    photoInput.onchange = (e) => {
+      pendingPhotoFiles = Array.from(e.target.files || []);
+      const previewContainer = form.querySelector('.photo-preview-container');
+      if (!previewContainer) return;
+      previewContainer.innerHTML = '';
 
-    let formHtmlContent = '';
-    let formIdToUse = isMapPageDynamicModal ? "dynamic-trip-form" : "trip-form";
-    let modalTitleText;
+      // Mostra fotos já existentes se estiver editando
+      if (tripToEdit && Array.isArray(tripToEdit.photos)) {
+        tripToEdit.photos.forEach((pUrl) => {
+          previewContainer.innerHTML += `<img src="${pUrl}" alt="Foto existente">`;
+        });
+      }
 
-    const titleValue = tripToEdit ? tripToEdit.title : '';
-    const dateValue = tripToEdit ? tripToEdit.date : '';
-    const stateValue = defaultState || (tripToEdit ? tripToEdit.state : '');
-    const descriptionValue = tripToEdit ? tripToEdit.description : '';
-    const tripIdValue = tripToEdit ? tripToEdit.id : '';
-
-    modalTitleText = tripToEdit ? `Editar Viagem` : `Adicionar Nova Viagem`;
-    if (isMapPageDynamicModal && defaultState && !tripToEdit) modalTitleText = `Adicionar Viagem em ${defaultState}`;
-
-    if (isMapPageDynamicModal) {
-        document.getElementById('map-modal-title').textContent = modalTitleText;
-        formHtmlContent = `
-            <form id="${formIdToUse}">
-                <input type="hidden" id="trip-id-input" value="${tripIdValue}">
-                <div><label for="trip-title-input">Cidade/Local:</label><input type="text" id="trip-title-input" value="${titleValue}" required></div>
-                <div><label for="trip-date-input">Data:</label><input type="date" id="trip-date-input" value="${dateValue}" required></div>
-                <div><label for="trip-state-form-input">Estado:</label><input type="text" id="trip-state-form-input" value="${stateValue}" required></div>
-                <div><label for="trip-description-input">Memórias:</label><textarea id="trip-description-input" rows="3" required>${descriptionValue}</textarea></div>
-                <div><label for="trip-photos-input">Fotos:</label><input type="file" id="trip-photos-input" accept="image/*" multiple><div class="photo-preview-container"></div></div>
-                <button type="submit">Salvar Viagem</button>
-            </form>`;
-        document.getElementById('map-modal-body-content').innerHTML = formHtmlContent;
-        document.getElementById('map-modal-footer-content').innerHTML = '';
-    } else {
-        const formInStaticModal = modalElement.querySelector(`#${formIdToUse}`);
-        const staticModalTitle = modalElement.querySelector('#add-trip-modal-title');
-        if (!formInStaticModal || !staticModalTitle) return;
-
-        staticModalTitle.textContent = modalTitleText;
-        formInStaticModal.reset();
-        formInStaticModal.querySelector('#trip-id-input').value = tripIdValue;
-        formInStaticModal.querySelector('#trip-title-input').value = titleValue;
-        formInStaticModal.querySelector('#trip-date-input').value = dateValue;
-        formInStaticModal.querySelector('#trip-state-form-input').value = stateValue;
-        formInStaticModal.querySelector('#trip-description-input').value = descriptionValue;
-
-        const photoPreview = formInStaticModal.querySelector('.photo-preview-container');
-        if (photoPreview) {
-            photoPreview.innerHTML = '';
-            if (tripToEdit && Array.isArray(tripToEdit.photos)) {
-                tripToEdit.photos.forEach(pUrl => photoPreview.innerHTML += `<img src="${pUrl}" alt="Preview">`);
-            }
+      // Preview das novas fotos selecionadas via FileReader seguro
+      pendingPhotoFiles.forEach((file) => {
+        if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = (re) => {
+            const img = document.createElement('img');
+            img.src = re.target.result;
+            previewContainer.appendChild(img);
+          };
+          reader.readAsDataURL(file);
         }
-    }
+      });
+    };
+  }
 
-    const currentForm = document.getElementById(formIdToUse);
-    if (currentForm) {
-        currentForm.onsubmit = (event) => handleGlobalTripFormSubmit(event, submitRefreshCallback);
-        const photoInput = currentForm.querySelector('#trip-photos-input');
-        if (photoInput) photoInput.onchange = handleGlobalPhotoPreviewEvent;
-    }
-
-    showModal(modalId);
-}
-
-function handleGlobalTripFormSubmit(event, refreshCallback) {
+  form.onsubmit = async (event) => {
     event.preventDefault();
-    const form = event.target;
+    const submitBtn = form.querySelector('#save-trip-btn') || form.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Salvando...';
+    }
 
     const tripId = form.querySelector('#trip-id-input').value;
     const title = form.querySelector('#trip-title-input').value;
     const date = form.querySelector('#trip-date-input').value;
-    const state = form.querySelector('#trip-state-form-input').value;
+    const stateVal = form.querySelector('#trip-state-form-input').value;
     const description = form.querySelector('#trip-description-input').value;
 
-    let photoPreviewURLs = [];
-    const previewImages = form.querySelectorAll('.photo-preview-container img');
-    previewImages.forEach(img => photoPreviewURLs.push(img.src));
+    const norm = normalizeState(stateVal);
 
-    const tripData = { title, date, state, description, photos: photoPreviewURLs };
-    const stateOfSubmittedTrip = tripData.state;
+    try {
+      if (tripId) {
+        // Atualização
+        const existingTrip = myTrips.find((t) => t.id === tripId);
+        const updated = await updateTrip(
+          tripId,
+          currentUser.uid,
+          {
+            title,
+            date,
+            state: norm.name,
+            stateUf: norm.uf,
+            description,
+            photos: existingTrip ? existingTrip.photos : [],
+          },
+          pendingPhotoFiles
+        );
+        const idx = myTrips.findIndex((t) => t.id === tripId);
+        if (idx !== -1) myTrips[idx] = updated;
+      } else {
+        // Criação
+        const created = await createTrip(
+          currentUser.uid,
+          {
+            title,
+            date,
+            state: norm.name,
+            stateUf: norm.uf,
+            description,
+            photos: [],
+          },
+          pendingPhotoFiles
+        );
+        myTrips.push(created);
+      }
 
-    if (tripId) {
-        tripData.id = tripId;
-        const index = myTrips.findIndex(t => t.id === tripId);
-        if (index !== -1) myTrips[index] = { ...myTrips[index], ...tripData };
-    } else {
-        tripData.id = 't' + nextTripId++;
-        myTrips.push(tripData);
+      hideModal();
+      if (typeof refreshCallback === 'function') {
+        await refreshCallback();
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao salvar a viagem. Tente novamente.');
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Salvar';
+      }
     }
-
-    saveTripsToLocalStorage();
-
-    hideModal();
-    if (typeof refreshCallback === 'function') {
-        if (form.id === "dynamic-trip-form" && typeof currentMapStateNameForAddForm !== 'undefined') {
-            refreshCallback(stateOfSubmittedTrip || currentMapStateNameForAddForm);
-        } else {
-            refreshCallback();
-        }
-    }
+  };
 }
 
-function handleGlobalPhotoPreviewEvent(event) {
-    const form = event.target.closest('form');
-    if (!form) return;
-    const previewContainer = form.querySelector('.photo-preview-container');
-    if (!previewContainer) return;
-    previewContainer.innerHTML = '';
-    const files = event.target.files;
-    for (const file of files) {
-        if (file.type.startsWith('image/')) {
-            const img = document.createElement('img');
-            img.src = URL.createObjectURL(file);
-            img.onload = () => URL.revokeObjectURL(img.src);
-            previewContainer.appendChild(img);
-        }
-    }
-}
-
+// ==========================================
+// Navigation Active Class
+// ==========================================
 function setActiveNavLink(pageName) {
-    document.querySelectorAll('#main-nav a').forEach(a => {
-        if (a.getAttribute('href') === pageName) a.classList.add('active-nav');
-        else a.classList.remove('active-nav');
-    });
+  const links = document.querySelectorAll('#main-header nav a, #main-nav a');
+  links.forEach((a) => {
+    const href = a.getAttribute('href');
+    if (href === pageName) {
+      a.classList.add('active-nav');
+    } else {
+      a.classList.remove('active-nav');
+    }
+  });
 }
