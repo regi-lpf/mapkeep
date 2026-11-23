@@ -1,17 +1,4 @@
-import { db, storage, isFirebaseConfigured } from './firebase-config.js';
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  serverTimestamp,
-  orderBy,
-} from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { supabase, isSupabaseConfigured } from './supabase-config.js';
 import { normalizeState } from './states.js';
 
 const LOCAL_STORAGE_TRIPS_PREFIX = 'mapKeepTrips_';
@@ -46,9 +33,6 @@ const DEFAULT_DEMO_TRIPS = [
   },
 ];
 
-/**
- * Converte um arquivo de imagem para Base64 Data URL (para uso local/fallback)
- */
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -59,7 +43,7 @@ function fileToBase64(file) {
 }
 
 /**
- * Faz upload de fotos para o Firebase Storage ou converte para Base64 se não configurado
+ * Upload de fotos para o bucket "trips" no Supabase Storage (com fallback Base64 se demo/offline)
  */
 export async function uploadPhotos(userId, files) {
   if (!files || files.length === 0) return [];
@@ -68,16 +52,24 @@ export async function uploadPhotos(userId, files) {
   for (const file of Array.from(files)) {
     if (!file.type.startsWith('image/')) continue;
 
-    if (isFirebaseConfigured && storage && userId) {
+    if (isSupabaseConfigured && supabase && userId) {
       try {
         const fileExt = file.name.split('.').pop() || 'jpg';
-        const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
-        const storageRef = ref(storage, `trips/${userId}/${fileName}`);
-        await uploadBytes(storageRef, file);
-        const downloadUrl = await getDownloadURL(storageRef);
-        urls.push(downloadUrl);
+        const fileName = `${userId}/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('trips')
+          .upload(fileName, file, { cacheControl: '3600', upsert: false });
+
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrlData } = supabase.storage
+          .from('trips')
+          .getPublicUrl(fileName);
+
+        urls.push(publicUrlData.publicUrl);
       } catch (err) {
-        console.warn('[MapKeep] Falha no upload para Storage, usando fallback Base64:', err);
+        console.warn('[MapKeep] Falha no upload para Supabase Storage, usando fallback Base64:', err);
         const base64 = await fileToBase64(file);
         urls.push(base64);
       }
@@ -91,33 +83,35 @@ export async function uploadPhotos(userId, files) {
 }
 
 /**
- * Retorna as viagens do usuário autenticado
+ * Busca todas as viagens do usuário autenticado no Supabase
  */
 export async function fetchUserTrips(userId) {
   if (!userId) return [];
 
-  if (isFirebaseConfigured && db) {
+  if (isSupabaseConfigured && supabase) {
     try {
-      const q = query(
-        collection(db, 'trips'),
-        where('userId', '==', userId)
-      );
-      const snapshot = await getDocs(q);
-      const trips = snapshot.docs.map((d) => {
-        const data = d.data();
-        const norm = normalizeState(data.state || data.stateUf);
+      const { data, error } = await supabase
+        .from('trips')
+        .select('*')
+        .eq('user_id', userId)
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+
+      return (data || []).map((row) => {
+        const norm = normalizeState(row.state || row.state_uf);
         return {
-          id: d.id,
-          ...data,
+          id: String(row.id),
+          title: row.title,
+          date: row.date,
           state: norm.name,
           stateUf: norm.uf,
+          description: row.description,
+          photos: Array.isArray(row.photos) ? row.photos : [],
         };
       });
-      // Ordenação client-side por data decrescente
-      return trips.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     } catch (err) {
-      console.error('[MapKeep] Erro ao buscar viagens no Firestore:', err);
-      // Fallback para localStorage
+      console.error('[MapKeep] Erro ao buscar viagens no Supabase:', err);
       return getLocalTrips(userId);
     }
   } else {
@@ -126,7 +120,7 @@ export async function fetchUserTrips(userId) {
 }
 
 /**
- * Adiciona uma nova viagem
+ * Cria uma nova viagem
  */
 export async function createTrip(userId, tripData, photoFiles = []) {
   const norm = normalizeState(tripData.state || tripData.stateUf);
@@ -135,28 +129,54 @@ export async function createTrip(userId, tripData, photoFiles = []) {
   const finalPhotos = [...existingPhotos, ...uploadedUrls];
 
   const payload = {
-    userId,
+    user_id: userId,
     title: tripData.title,
     date: tripData.date,
     state: norm.name,
-    stateUf: norm.uf,
+    state_uf: norm.uf,
     description: tripData.description,
     photos: finalPhotos,
   };
 
-  if (isFirebaseConfigured && db) {
+  if (isSupabaseConfigured && supabase) {
     try {
-      const docRef = await addDoc(collection(db, 'trips'), {
-        ...payload,
-        createdAt: serverTimestamp(),
-      });
-      return { id: docRef.id, ...payload };
+      const { data, error } = await supabase
+        .from('trips')
+        .insert([payload])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return {
+        id: String(data.id),
+        title: data.title,
+        date: data.date,
+        state: norm.name,
+        stateUf: norm.uf,
+        description: data.description,
+        photos: data.photos || [],
+      };
     } catch (err) {
-      console.error('[MapKeep] Erro ao criar viagem no Firestore:', err);
-      return saveLocalTrip(userId, payload);
+      console.error('[MapKeep] Erro ao criar viagem no Supabase:', err);
+      return saveLocalTrip(userId, {
+        title: tripData.title,
+        date: tripData.date,
+        state: norm.name,
+        stateUf: norm.uf,
+        description: tripData.description,
+        photos: finalPhotos,
+      });
     }
   } else {
-    return saveLocalTrip(userId, payload);
+    return saveLocalTrip(userId, {
+      title: tripData.title,
+      date: tripData.date,
+      state: norm.name,
+      stateUf: norm.uf,
+      description: tripData.description,
+      photos: finalPhotos,
+    });
   }
 }
 
@@ -173,25 +193,52 @@ export async function updateTrip(tripId, userId, tripData, newPhotoFiles = []) {
     title: tripData.title,
     date: tripData.date,
     state: norm.name,
-    stateUf: norm.uf,
+    state_uf: norm.uf,
     description: tripData.description,
     photos: finalPhotos,
   };
 
-  if (isFirebaseConfigured && db) {
+  if (isSupabaseConfigured && supabase) {
     try {
-      const tripRef = doc(db, 'trips', tripId);
-      await updateDoc(tripRef, {
-        ...payload,
-        updatedAt: serverTimestamp(),
-      });
-      return { id: tripId, userId, ...payload };
+      const { data, error } = await supabase
+        .from('trips')
+        .update(payload)
+        .eq('id', tripId)
+        .eq('user_id', userId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return {
+        id: String(data.id),
+        title: data.title,
+        date: data.date,
+        state: norm.name,
+        stateUf: norm.uf,
+        description: data.description,
+        photos: data.photos || [],
+      };
     } catch (err) {
-      console.error('[MapKeep] Erro ao atualizar no Firestore:', err);
-      return updateLocalTrip(userId, tripId, payload);
+      console.error('[MapKeep] Erro ao atualizar no Supabase:', err);
+      return updateLocalTrip(userId, tripId, {
+        title: tripData.title,
+        date: tripData.date,
+        state: norm.name,
+        stateUf: norm.uf,
+        description: tripData.description,
+        photos: finalPhotos,
+      });
     }
   } else {
-    return updateLocalTrip(userId, tripId, payload);
+    return updateLocalTrip(userId, tripId, {
+      title: tripData.title,
+      date: tripData.date,
+      state: norm.name,
+      stateUf: norm.uf,
+      description: tripData.description,
+      photos: finalPhotos,
+    });
   }
 }
 
@@ -199,11 +246,17 @@ export async function updateTrip(tripId, userId, tripData, newPhotoFiles = []) {
  * Exclui uma viagem
  */
 export async function deleteTrip(tripId, userId) {
-  if (isFirebaseConfigured && db) {
+  if (isSupabaseConfigured && supabase) {
     try {
-      await deleteDoc(doc(db, 'trips', tripId));
+      const { error } = await supabase
+        .from('trips')
+        .delete()
+        .eq('id', tripId)
+        .eq('user_id', userId);
+
+      if (error) throw error;
     } catch (err) {
-      console.error('[MapKeep] Erro ao excluir no Firestore:', err);
+      console.error('[MapKeep] Erro ao excluir no Supabase:', err);
     }
   }
   deleteLocalTrip(userId, tripId);
@@ -214,7 +267,6 @@ function getLocalTrips(userId) {
   const key = LOCAL_STORAGE_TRIPS_PREFIX + userId;
   const raw = localStorage.getItem(key);
   if (!raw) {
-    // Inicializa com dados demo padronizados
     localStorage.setItem(key, JSON.stringify(DEFAULT_DEMO_TRIPS));
     return DEFAULT_DEMO_TRIPS;
   }

@@ -10,10 +10,10 @@ A aplicação conta com um mapa interativo onde os estados visitados ganham dest
 
 - **Front-end:** HTML5 semântico, CSS3 (design neo-brutalista), Vanilla JavaScript (ES Modules).
 - **Tooling & Build:** [Vite](https://vitejs.dev/) para empacotamento, live reload e injeção de variáveis de ambiente.
-- **Backend-as-a-Service (Firebase):**
-  - **Firebase Authentication:** Login seguro com Google OAuth2.
-  - **Cloud Firestore:** Armazenamento em tempo real das viagens por usuário.
-  - **Firebase Storage:** Upload de fotos de viagens.
+- **Backend-as-a-Service (Supabase):**
+  - **Supabase Auth:** Autenticação com Google OAuth2.
+  - **PostgreSQL / PostgREST:** Banco de dados relacional com Row Level Security (RLS).
+  - **Supabase Storage:** Armazenamento e CDN de fotos de viagens.
 - **CI/CD:** GitHub Actions para build e deploy automatizado no GitHub Pages.
 
 ---
