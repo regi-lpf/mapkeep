@@ -77,7 +77,12 @@ window.addEventListener('DOMContentLoaded', () => {
     updateHeaderUserUI(user);
 
     // Carrega as viagens do usuário
-    myTrips = await fetchUserTrips(user.uid);
+    try {
+      myTrips = await fetchUserTrips(user.uid);
+    } catch (err) {
+      myTrips = [];
+      showLoadError(err);
+    }
 
     if (bodyId === 'timeline-page-body') {
       initTimelinePage();
@@ -87,6 +92,17 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+
+function showLoadError(err) {
+  console.error('[MapKeep] Falha ao carregar viagens:', err);
+  const target =
+    document.getElementById('trip-list-container') ||
+    document.getElementById('map-stats');
+  if (target) {
+    target.innerHTML = '<p class="login-feedback">Não foi possível carregar suas viagens: ' +
+      (err && err.message ? err.message : 'erro desconhecido') + '</p>';
+  }
+}
 // ==========================================
 // Login Page
 // ==========================================
@@ -107,8 +123,9 @@ function initLoginPage() {
       if (feedbackEl) feedbackEl.textContent = '';
 
       try {
-        await signInWithGoogle();
-        window.location.replace('trips.html');
+        const result = await signInWithGoogle();
+        // Com Supabase o navegador já está sendo redirecionado ao Google: não navegar aqui.
+        if (!result.redirecting) window.location.replace('trips.html');
       } catch (err) {
         console.error(err);
         loginBtn.disabled = false;
